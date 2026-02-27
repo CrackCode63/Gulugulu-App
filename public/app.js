@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
   chatOpen: 'meetflow.ui.chatOpen',
   controlsHidden: 'meetflow.ui.controlsHidden',
   selfDragPos: 'meetflow.ui.selfDragPos',
+  lastSession: 'meetflow.session.last',
 };
 
 const state = {
@@ -25,6 +26,7 @@ const state = {
   focusedOnSelf: false,
   chatOpen: false,
   darkMode: false,
+  pendingSession: null,
   peers: new Map(),
   screenSenders: new Map(),
   remoteUsers: new Map(),
@@ -191,6 +193,7 @@ function loadUiPreferences() {
   const savedChatOpen = localStorage.getItem(STORAGE_KEYS.chatOpen);
   const savedControlsHidden = localStorage.getItem(STORAGE_KEYS.controlsHidden);
   const savedDragPos = localStorage.getItem(STORAGE_KEYS.selfDragPos);
+  const savedSession = localStorage.getItem(STORAGE_KEYS.lastSession);
 
   setTheme(savedTheme === 'dark');
   setChatOpen(savedChatOpen === '1');
@@ -207,6 +210,41 @@ function loadUiPreferences() {
     } catch {
     }
   }
+
+  if (savedSession) {
+    try {
+      const parsedSession = JSON.parse(savedSession);
+      if (parsedSession && parsedSession.roomId) {
+        state.pendingSession = {
+          roomId: String(parsedSession.roomId).toUpperCase(),
+          userName: String(parsedSession.userName || 'Guest'),
+        };
+        elements.roomInput.value = state.pendingSession.roomId;
+        if (!nameFromUrl) {
+          elements.nameInput.value = state.pendingSession.userName;
+        }
+      }
+    } catch {
+    }
+  }
+}
+
+function saveLastSession() {
+  if (!state.roomId) {
+    return;
+  }
+
+  localStorage.setItem(
+    STORAGE_KEYS.lastSession,
+    JSON.stringify({
+      roomId: state.roomId,
+      userName: state.userName || elements.nameInput.value.trim() || 'Guest',
+    })
+  );
+}
+
+function clearLastSession() {
+  localStorage.removeItem(STORAGE_KEYS.lastSession);
 }
 
 function hasRemoteParticipant() {
@@ -315,6 +353,8 @@ function startSpeakingMonitor(key, stream, onSpeakChange) {
     source.connect(analyser);
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     let lastSpeaking = false;
+    let speakingHits = 0;
+    let silenceHits = 0;
 
     const intervalId = window.setInterval(() => {
       analyser.getByteFrequencyData(dataArray);
@@ -323,10 +363,23 @@ function startSpeakingMonitor(key, stream, onSpeakChange) {
         avg += dataArray[i];
       }
       avg /= dataArray.length;
-      const speakingNow = avg > 20;
-      if (speakingNow !== lastSpeaking) {
-        lastSpeaking = speakingNow;
-        onSpeakChange(speakingNow);
+      const speakingNow = avg > 24;
+      if (speakingNow) {
+        speakingHits += 1;
+        silenceHits = 0;
+      } else {
+        silenceHits += 1;
+        speakingHits = 0;
+      }
+
+      if (!lastSpeaking && speakingHits >= 3) {
+        lastSpeaking = true;
+        onSpeakChange(true);
+      }
+
+      if (lastSpeaking && silenceHits >= 4) {
+        lastSpeaking = false;
+        onSpeakChange(false);
       }
     }, 300);
 
@@ -567,6 +620,7 @@ function getPrimaryRemote() {
 
 function updateLayoutMode() {
   const screenShareMode = hasAnyScreenShare();
+  const singleRemote = state.remoteMedia.size === 1 && !state.focusedOnSelf;
 
   elements.screenLayout.classList.toggle('hidden', !screenShareMode);
   elements.remoteArea.classList.toggle('hidden', screenShareMode);
@@ -595,6 +649,7 @@ function updateLayoutMode() {
   }
 
   elements.remoteArea.classList.add('gallery-mode');
+  elements.remoteArea.classList.toggle('single-remote', singleRemote);
   elements.remoteArea.classList.remove('theater-mode');
   elements.localArea.classList.toggle('floating-self', !state.focusedOnSelf);
   elements.localArea.classList.toggle('self-full', state.focusedOnSelf);
@@ -724,12 +779,15 @@ async function ensureLocalCamera() {
     return;
   }
   state.localCameraStream = await navigator.mediaDevices.getUserMedia({
-    video: true,
+    video: {
+      width: { ideal: 960, max: 1280 },
+      height: { ideal: 540, max: 720 },
+      frameRate: { ideal: 24, max: 30 },
+    },
     audio: true,
   });
   startSpeakingMonitor('local', state.localCameraStream, (speaking) => {
     state.localSpeaking = speaking;
-    setupLocalPreview();
   });
   setupLocalPreview();
 }
@@ -1105,6 +1163,7 @@ async function joinRoom({ roomCode, allowCreate }) {
 
   state.roomId = roomId;
   state.userName = userName;
+  saveLastSession();
   await ensureLocalCamera();
 
   if (!socket.connected) {
@@ -1200,6 +1259,7 @@ async function leaveRoom() {
   }
 
   state.joined = false;
+  clearLastSession();
   elements.roomCreatedBox.classList.add('hidden');
   setButtons();
   setStatus('Left call');
@@ -1497,6 +1557,12 @@ if (roomFromUrl && autoJoinFromUrl) {
   window.setTimeout(() => {
     joinRoom({ roomCode: roomFromUrl.toUpperCase(), allowCreate: false }).catch((error) => {
       setStatus(`Auto join failed: ${error.message}`);
+    });
+  }, 300);
+} else if (state.pendingSession && state.pendingSession.roomId) {
+  window.setTimeout(() => {
+    joinRoom({ roomCode: state.pendingSession.roomId, allowCreate: true }).catch(() => {
+      setStatus('Previous room restore failed. You can join manually.');
     });
   }, 300);
 }

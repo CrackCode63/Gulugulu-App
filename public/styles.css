@@ -240,6 +240,20 @@ button:disabled {
   object-fit: cover;
 }
 
+#remoteArea.gallery-mode.single-remote {
+  grid-template-columns: 1fr;
+  align-content: stretch;
+}
+
+#remoteArea.gallery-mode.single-remote > div {
+  height: 100%;
+}
+
+#remoteArea.gallery-mode.single-remote .video-card {
+  height: calc(100vh - 120px);
+  aspect-ratio: auto;
+}
+
 #remoteArea.theater-mode {
   display: grid;
 }
@@ -911,6 +925,10 @@ body.controls-hidden .controls-panel {
   #remoteArea.gallery-mode,
   #remoteArea.theater-mode {
     height: calc(100vh - 20px);
+  }
+
+  #remoteArea.gallery-mode.single-remote .video-card {
+    height: calc(100vh - 90px);
   }
 
   .controls-panel {

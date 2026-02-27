@@ -218,7 +218,9 @@ button:disabled {
   border: 0;
   border-radius: 12px;
   overflow: hidden;
-  aspect-ratio: 16 / 9;
+  height: var(--remote-tile-height, auto);
+  min-height: 170px;
+  aspect-ratio: auto;
   background: #000;
 }
 
@@ -250,8 +252,12 @@ button:disabled {
 }
 
 #remoteArea.gallery-mode.single-remote .video-card {
-  height: calc(100vh - 120px);
+  height: calc(100vh - 110px);
   aspect-ratio: auto;
+}
+
+.local-camera-video {
+  transform: scaleX(-1);
 }
 
 #remoteArea.theater-mode {

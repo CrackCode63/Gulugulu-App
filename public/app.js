@@ -27,6 +27,9 @@ const state = {
   chatOpen: false,
   darkMode: false,
   pendingSession: null,
+  roomCreatedTimer: null,
+  availableVideoInputs: [],
+  currentVideoDeviceId: null,
   peers: new Map(),
   screenSenders: new Map(),
   remoteUsers: new Map(),
@@ -54,6 +57,7 @@ const elements = {
   roomInput: document.getElementById('roomInput'),
   createRoomBtn: document.getElementById('createRoomBtn'),
   joinRoomBtn: document.getElementById('joinRoomBtn'),
+  switchCamBtn: document.getElementById('switchCamBtn'),
   leaveBtn: document.getElementById('leaveBtn'),
   shareBtn: document.getElementById('shareBtn'),
   swapBtn: document.getElementById('swapBtn'),
@@ -273,6 +277,7 @@ function setButtons() {
   elements.micBtn.disabled = !state.joined;
   elements.camBtn.disabled = !state.joined;
   elements.handBtn.disabled = !state.joined;
+  elements.switchCamBtn.disabled = !state.joined || state.availableVideoInputs.length < 2;
   elements.swapBtn.disabled = !state.joined || state.localScreenStream !== null || !hasRemoteParticipant();
   elements.sendChatBtn.disabled = !state.joined;
 
@@ -285,6 +290,66 @@ function setButtons() {
 
   elements.themeBtn.textContent = state.darkMode ? '☀ Day Mode' : '🌙 Dark Mode';
   elements.handBtn.textContent = state.localMediaState.handRaised ? '✋ Hand Up' : '✋ Raise Hand';
+}
+
+function showRoomCreatedBanner(roomCode) {
+  elements.roomCreatedBox.classList.remove('hidden');
+  setStatus(`Room Created Successfully: ${roomCode}`);
+
+  if (state.roomCreatedTimer) {
+    window.clearTimeout(state.roomCreatedTimer);
+  }
+
+  state.roomCreatedTimer = window.setTimeout(() => {
+    elements.roomCreatedBox.classList.add('hidden');
+    state.roomCreatedTimer = null;
+  }, 2800);
+}
+
+function applyRemoteGridLayout() {
+  const count = state.remoteMedia.size;
+  if (count === 0) {
+    elements.remoteArea.style.gridTemplateColumns = '';
+    elements.remoteArea.style.setProperty('--remote-tile-height', '');
+    return;
+  }
+
+  const isMobile = window.innerWidth <= 768;
+  let columns;
+
+  if (count === 1) {
+    columns = 1;
+  } else if (isMobile) {
+    columns = count <= 2 ? 1 : 2;
+  } else if (count <= 4) {
+    columns = 2;
+  } else {
+    columns = 3;
+  }
+
+  const rows = Math.ceil(count / columns);
+  const gap = 12;
+  const topOffset = isMobile ? 90 : 120;
+  const availableHeight = Math.max(260, window.innerHeight - topOffset);
+  const tileHeight = Math.max(170, Math.floor((availableHeight - gap * (rows - 1)) / rows));
+
+  elements.remoteArea.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+  elements.remoteArea.style.setProperty('--remote-tile-height', `${tileHeight}px`);
+}
+
+function recalcRemoteLayoutSoon() {
+  window.requestAnimationFrame(() => {
+    applyRemoteGridLayout();
+  });
+}
+
+async function refreshVideoInputs() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    state.availableVideoInputs = devices.filter((device) => device.kind === 'videoinput');
+  } catch {
+    state.availableVideoInputs = [];
+  }
 }
 
 function createVideoCard(title) {
@@ -494,6 +559,7 @@ function setupLocalPreview() {
     cameraCard.card.classList.add('speaking');
   }
   cameraCard.video.muted = true;
+  cameraCard.video.classList.add('local-camera-video');
   cameraCard.video.srcObject = state.localCameraStream;
   elements.localArea.appendChild(cameraCard.card);
 
@@ -646,6 +712,8 @@ function updateLayoutMode() {
 
   if (!hasRemoteParticipant()) {
     state.focusedOnSelf = false;
+  } else if (state.remoteMedia.size <= 1) {
+    state.focusedOnSelf = false;
   }
 
   elements.remoteArea.classList.add('gallery-mode');
@@ -672,6 +740,7 @@ function updateLayoutMode() {
       remote.cameraCard.card.style.display = '';
       remote.screenCard.card.style.display = 'none';
     }
+    applyRemoteGridLayout();
   } else {
     const primary = getPrimaryRemote();
     for (const remote of state.remoteMedia.values()) {
@@ -786,10 +855,79 @@ async function ensureLocalCamera() {
     },
     audio: true,
   });
+
+  const currentTrack = state.localCameraStream.getVideoTracks()[0];
+  if (currentTrack) {
+    const settings = currentTrack.getSettings ? currentTrack.getSettings() : {};
+    state.currentVideoDeviceId = settings.deviceId || null;
+  }
+
+  await refreshVideoInputs();
   startSpeakingMonitor('local', state.localCameraStream, (speaking) => {
     state.localSpeaking = speaking;
   });
   setupLocalPreview();
+}
+
+async function switchCameraDevice() {
+  if (!state.localCameraStream) {
+    return;
+  }
+
+  await refreshVideoInputs();
+  if (state.availableVideoInputs.length < 2) {
+    setStatus('No secondary camera found.');
+    setButtons();
+    return;
+  }
+
+  const currentTrack = state.localCameraStream.getVideoTracks()[0];
+  if (!currentTrack) {
+    return;
+  }
+
+  const currentDeviceId = state.currentVideoDeviceId || (currentTrack.getSettings && currentTrack.getSettings().deviceId) || null;
+  const currentIndex = state.availableVideoInputs.findIndex((device) => device.deviceId === currentDeviceId);
+  const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % state.availableVideoInputs.length : 0;
+  const nextDeviceId = state.availableVideoInputs[nextIndex].deviceId;
+
+  try {
+    const switchedStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        deviceId: { exact: nextDeviceId },
+        width: { ideal: 960, max: 1280 },
+        height: { ideal: 540, max: 720 },
+        frameRate: { ideal: 24, max: 30 },
+      },
+      audio: false,
+    });
+
+    const newTrack = switchedStream.getVideoTracks()[0];
+    if (!newTrack) {
+      return;
+    }
+
+    newTrack.enabled = state.localMediaState.cameraEnabled;
+
+    for (const pc of state.peers.values()) {
+      for (const sender of pc.getSenders()) {
+        if (sender.track && sender.track.id === currentTrack.id) {
+          await sender.replaceTrack(newTrack);
+        }
+      }
+    }
+
+    state.localCameraStream.removeTrack(currentTrack);
+    currentTrack.stop();
+    state.localCameraStream.addTrack(newTrack);
+    state.currentVideoDeviceId = nextDeviceId;
+
+    setupLocalPreview();
+    setButtons();
+    setStatus('Camera switched.');
+  } catch (error) {
+    setStatus(`Camera switch failed: ${error.message}`);
+  }
 }
 
 function addScreenSender(remoteUserId, sender) {
@@ -948,6 +1086,7 @@ function addRemoteTrack(remoteUserId, track) {
   }
 
   updateLayoutMode();
+  recalcRemoteLayoutSoon();
 }
 
 function removeRemoteUser(remoteUserId) {
@@ -966,6 +1105,7 @@ function removeRemoteUser(remoteUserId) {
     state.focusedOnSelf = false;
   }
   updateLayoutMode();
+  recalcRemoteLayoutSoon();
 }
 
 function closePeer(remoteUserId) {
@@ -1203,8 +1343,7 @@ async function createRoomFlow() {
   const roomCode = (userCode.trim() || generateRoomCode()).toUpperCase();
   elements.roomInput.value = roomCode;
   await joinRoom({ roomCode, allowCreate: true });
-  elements.roomCreatedBox.classList.remove('hidden');
-  setStatus(`Room Created Successfully: ${roomCode}`);
+  showRoomCreatedBanner(roomCode);
 }
 
 async function joinRoomFlow() {
@@ -1423,6 +1562,13 @@ elements.joinRoomBtn.addEventListener('click', () => {
   setOverflowOpen(false);
 });
 
+elements.switchCamBtn.addEventListener('click', () => {
+  switchCameraDevice().catch((error) => {
+    setStatus(`Camera switch failed: ${error.message}`);
+  });
+  setOverflowOpen(false);
+});
+
 elements.leaveBtn.addEventListener('click', () => {
   leaveRoom().catch((error) => {
     setStatus(`Leave failed: ${error.message}`);
@@ -1523,6 +1669,10 @@ document.addEventListener('keydown', (event) => {
   if (state.chatOpen) {
     setChatOpen(false);
   }
+});
+
+window.addEventListener('resize', () => {
+  applyRemoteGridLayout();
 });
 
 elements.chatForm.addEventListener('submit', (event) => {

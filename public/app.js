@@ -1,4 +1,7 @@
-const socket = io();
+const signalingServerUrl = (window.SIGNALING_SERVER_URL || '').trim();
+const socket = signalingServerUrl
+  ? io(signalingServerUrl, { transports: ['websocket', 'polling'] })
+  : io();
 
 const STORAGE_KEYS = {
   uiTheme: 'meetflow.ui.theme',

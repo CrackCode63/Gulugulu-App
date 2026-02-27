@@ -1,0 +1,1 @@
+window.SIGNALING_SERVER_URL = window.SIGNALING_SERVER_URL || '';

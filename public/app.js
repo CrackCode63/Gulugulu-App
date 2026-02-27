@@ -30,6 +30,7 @@ const state = {
   roomCreatedTimer: null,
   availableVideoInputs: [],
   currentVideoDeviceId: null,
+  deferredInstallPrompt: null,
   peers: new Map(),
   screenSenders: new Map(),
   remoteUsers: new Map(),
@@ -73,6 +74,7 @@ const elements = {
   roomCreatedBox: document.getElementById('roomCreatedBox'),
   shareAudioInput: document.getElementById('shareAudioInput'),
   themeBtn: document.getElementById('themeBtn'),
+  installBtn: document.getElementById('installBtn'),
   chatToggleBtn: document.getElementById('chatToggleBtn'),
   statusText: document.getElementById('statusText'),
   localArea: document.getElementById('localArea'),
@@ -290,6 +292,62 @@ function setButtons() {
 
   elements.themeBtn.textContent = state.darkMode ? '☀ Day Mode' : '🌙 Dark Mode';
   elements.handBtn.textContent = state.localMediaState.handRaised ? '✋ Hand Up' : '✋ Raise Hand';
+}
+
+function isStandaloneMode() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function updateInstallButtonState() {
+  if (!elements.installBtn) {
+    return;
+  }
+
+  if (isStandaloneMode()) {
+    elements.installBtn.disabled = true;
+    elements.installBtn.textContent = '✅ Installed';
+    return;
+  }
+
+  elements.installBtn.disabled = false;
+  elements.installBtn.textContent = '⬇ Install App';
+}
+
+async function promptInstallApp() {
+  if (isStandaloneMode()) {
+    setStatus('App already installed.');
+    return;
+  }
+
+  if (!state.deferredInstallPrompt) {
+    setStatus('Install prompt not ready yet. Open in Chrome/Edge and use HTTPS, then try again.');
+    return;
+  }
+
+  const installEvent = state.deferredInstallPrompt;
+  state.deferredInstallPrompt = null;
+  await installEvent.prompt();
+  await installEvent.userChoice;
+  updateInstallButtonState();
+}
+
+function registerPwaSupport() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {
+    });
+  }
+
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+    state.deferredInstallPrompt = event;
+    updateInstallButtonState();
+  });
+
+  window.addEventListener('appinstalled', () => {
+    state.deferredInstallPrompt = null;
+    updateInstallButtonState();
+    setStatus('App installed successfully.');
+  });
 }
 
 function showRoomCreatedBanner(roomCode) {
@@ -1633,6 +1691,13 @@ elements.themeBtn.addEventListener('click', () => {
   setOverflowOpen(false);
 });
 
+elements.installBtn.addEventListener('click', () => {
+  promptInstallApp().catch((error) => {
+    setStatus(`Install failed: ${error.message}`);
+  });
+  setOverflowOpen(false);
+});
+
 elements.chatToggleBtn.addEventListener('click', () => {
   setChatOpen(!state.chatOpen);
 });
@@ -1701,6 +1766,8 @@ window.addEventListener('beforeunload', () => {
 attachFloatingDrag();
 setButtons();
 applyRoundFaviconFromImage('/icon.jpg');
+registerPwaSupport();
+updateInstallButtonState();
 loadUiPreferences();
 
 if (roomFromUrl && autoJoinFromUrl) {

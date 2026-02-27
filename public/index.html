@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gulugulu</title>
+    <link id="appFavicon" rel="icon" type="image/jpeg" href="/icon.jpg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Gulugulu</h1>
+
+      <section id="roomCreatedBox" class="glass-strip room-created hidden">
+        <strong>Room Created Successfully</strong>
+        <span>Use menu (⋯) for copy/share options.</span>
+      </section>
+
+      <p id="statusText">Not connected</p>
+
+      <section id="callStage" class="call-stage">
+        <div id="remoteArea" class="video-grid"></div>
+        <div id="localArea" class="video-grid floating-self"></div>
+        <div id="screenLayout" class="screen-layout hidden">
+          <div id="screenArea" class="screen-main"></div>
+          <div id="participantArea" class="participant-strip"></div>
+        </div>
+      </section>
+
+      <section class="controls-panel glass-strip">
+        <div class="controls-ribbon">
+          <button id="micBtn" class="icon-only" disabled title="Mic">🎙</button>
+          <button id="camBtn" class="icon-only" disabled title="Camera">📷</button>
+          <button id="shareBtn" class="icon-only" disabled title="Screen Share">🖥</button>
+          <button id="chatToggleBtn" class="icon-only" title="Chat">💬</button>
+          <button id="leaveBtn" class="icon-only" disabled title="Leave Call">⏻</button>
+          <button id="menuBtn" class="icon-only" title="More">⋯</button>
+        </div>
+
+        <div id="overflowMenu" class="overflow-menu hidden">
+          <input id="nameInput" type="text" placeholder="Your name" maxlength="30" />
+          <input id="roomInput" type="text" placeholder="Room Code" maxlength="40" />
+          <button id="createRoomBtn">＋ Create Room</button>
+          <button id="joinRoomBtn">↪ Join Room</button>
+          <button id="swapBtn" disabled>🔁 Swap View</button>
+          <button id="handBtn" disabled>✋ Raise Hand</button>
+          <button id="themeBtn">🌙 Dark/Day</button>
+          <button id="inviteBtn">🔗 Copy Link</button>
+          <button id="copyCodeBtn">📋 Copy Room Code</button>
+          <button id="shareLinkBtn">📨 Share Room Link</button>
+          <label class="checkbox-field menu-check">
+            <input id="shareAudioInput" type="checkbox" />
+            Screen Audio
+          </label>
+        </div>
+      </section>
+
+      <button id="controlsVisibilityBtn" class="controls-visibility-btn" title="Hide Controls">⌄</button>
+
+      <section id="chatPanel" class="chat-panel hidden">
+        <h2>In-call Chat</h2>
+        <div id="chatMessages" class="chat-messages"></div>
+        <form id="chatForm" class="chat-form">
+          <input id="chatInput" type="text" placeholder="Type message..." maxlength="500" />
+          <button id="sendChatBtn" type="submit" disabled>Send</button>
+        </form>
+      </section>
+    </main>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
